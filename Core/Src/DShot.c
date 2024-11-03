@@ -8,9 +8,11 @@
 #include "DShot.h"
 
 void dshotInit(DShotConfig_t dshotConfig) {
-	HAL_TIM_PWM_Start(dshotConfig.timer, dshotConfig.timerChannel);
+	HAL_TIMEx_PWMN_Start(dshotConfig.timer, dshotConfig.timerChannel);
 
 	DMA_HandleTypeDef* dmaHandle = dshotConfig.timer->hdma[dshotConfig.timDMAHandleIndex];
+	
+	// set source and destination for DMA
 	uint32_t dmaSrcAddr = (uint32_t)(dshotConfig.dmaBuffer);
 	uint32_t dmaDestAddr = 0;
 
@@ -59,11 +61,16 @@ uint16_t dshotGetThrottleBits(float throttlePercentage, uint8_t telemetry) {
 
 void dshotWrite(DShotConfig_t dshotConfig, float throttlePercentage, uint8_t telemetry) {
 	// Disable timer DMA to avoid DMA transfers while the DMA buffer is being updated
-	__HAL_TIM_DISABLE_DMA(dshotConfig.timer, dshotConfig.timDMASource);
+	HAL_TIMEx_PWMN_Stop_DMA(dshotConfig.timer, dshotConfig.timerChannel);
 
 	dshotUpdateDMABuffer(dshotConfig.dmaBuffer, dshotGetThrottleBits(throttlePercentage, telemetry));
 
-	__HAL_TIM_ENABLE_DMA(dshotConfig.timer, dshotConfig.timDMASource);
+	HAL_TIMEx_PWMN_Start_DMA(
+		dshotConfig.timer,
+		dshotConfig.timerChannel,
+		(uint32_t *)dshotConfig.dmaBuffer,
+		DSHOT_DMA_BUFFER_LEN
+	);
 }
 
 void dshotUpdateDMABuffer(uint32_t *buffer, uint16_t frame) {

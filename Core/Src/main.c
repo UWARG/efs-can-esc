@@ -26,7 +26,7 @@
 #include <canard.h>
 #include <dronecan_msgs.h>
 #include <node_settings.h>
-#include <canard_stm32_driver.h>
+//#include <canard_stm32_driver.h>
 #include <Dshot.h>
 /* USER CODE END Includes */
 
@@ -49,7 +49,6 @@
 CAN_HandleTypeDef hcan1;
 
 TIM_HandleTypeDef htim1;
-DMA_HandleTypeDef hdma_tim1_ch1;
 
 /* USER CODE BEGIN PV */
 CanardInstance canard;
@@ -60,9 +59,8 @@ static struct uavcan_protocol_NodeStatus node_status;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_CAN1_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_CAN1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -70,21 +68,21 @@ static void MX_TIM1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void HAL_CAN_RxFifo0Callback(CAN_HandleTypeDef *hcan, uint32_t RxFifo0ITs) {
-	// Receiving
-	CanardCANFrame rx_frame;
-
-	const uint64_t timestamp = HAL_GetTick() * 1000ULL;
-	const int16_t rx_res = canardSTM32Recieve(hcan, CAN_RX_FIFO0, &rx_frame);
-
-	if (rx_res < 0) {
-		printf("Receive error %d\n", rx_res);
-	}
-	else if (rx_res > 0)        // Success - process the frame
-	{
-		canardHandleRxFrame(&canard, &rx_frame, timestamp);
-	}
-}
+//void HAL_CAN_RxFifo0Callback(CAN_HandleTypeDef *hcan, uint32_t RxFifo0ITs) {
+//	// Receiving
+//	CanardCANFrame rx_frame;
+//
+//	const uint64_t timestamp = HAL_GetTick() * 1000ULL;
+//	const int16_t rx_res = canardSTM32Recieve(hcan, CAN_RX_FIFO0, &rx_frame);
+//
+//	if (rx_res < 0) {
+//		printf("Receive error %d\n", rx_res);
+//	}
+//	else if (rx_res > 0)        // Success - process the frame
+//	{
+//		canardHandleRxFrame(&canard, &rx_frame, timestamp);
+//	}
+//}
 
 // NOTE: All canard handlers and senders are based on this reference: https://dronecan.github.io/Specification/7._List_of_standard_data_types/
 // Alternatively, you can look at the corresponding generated header file in the dsdlc_generated folder
@@ -181,7 +179,9 @@ void handle_RawCommand(CanardInstance *ins, CanardRxTransfer *transfer)
         return;
     }
     // convert throttle to -1.0 to 1.0 range
-//    printf("Throttle: %f \n", rawCommand.cmd.data[ESC_INDEX]/8192.0);
+    printf("Throttle: ");
+    //printf(rawCommand.cmd.data[ESC_INDEX]/8192.0);
+    printf("\n");
 }
 
 /*
@@ -358,22 +358,22 @@ void onTransferReceived(CanardInstance *ins, CanardRxTransfer *transfer) {
 	}
 }
 
-void processCanardTxQueue(CAN_HandleTypeDef *hcan) {
-	// Transmitting
-
-	for (const CanardCANFrame *tx_frame ; (tx_frame = canardPeekTxQueue(&canard)) != NULL;) {
-		const int16_t tx_res = canardSTM32Transmit(hcan, tx_frame);
-
-		if (tx_res < 0) {
-			printf("Transmit error %d\n", tx_res);
-		} else if (tx_res > 0) {
-			printf("Successfully transmitted message\n");
-		}
-
-		// Pop canardTxQueue either way
-		canardPopTxQueue(&canard);
-	}
-}
+//void processCanardTxQueue(CAN_HandleTypeDef *hcan) {
+//	// Transmitting
+//
+//	for (const CanardCANFrame *tx_frame ; (tx_frame = canardPeekTxQueue(&canard)) != NULL;) {
+//		const int16_t tx_res = canardSTM32Transmit(hcan, tx_frame);
+//
+//		if (tx_res < 0) {
+//			printf("Transmit error %d\n", tx_res);
+//		} else if (tx_res > 0) {
+//			printf("Successfully transmitted message\n");
+//		}
+//
+//		// Pop canardTxQueue either way
+//		canardPopTxQueue(&canard);
+//	}
+//}
 
 /*
   This function is called at 1 Hz rate from the main loop.
@@ -388,6 +388,11 @@ void process1HzTasks(uint64_t timestamp_usec) {
       Transmit the node status message
     */
     send_NodeStatus();
+}
+
+void send_ESCStatus() {
+  // TODO: see servo example
+    printf("test\n");
 }
 
 /* USER CODE END 0 */
@@ -421,22 +426,21 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_CAN1_Init();
   MX_TIM1_Init();
+  MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
 
   /*
     initializing dshot
   */
+  //HAL_TIM_StateTypeDef check = HAL_DMA_GetState(&htim1);
   uint32_t buffer[DSHOT_DMA_BUFFER_LEN] = {0};
   DShotConfig_t dshotConfig = {};
   dshotConfig.timer = &htim1;
   dshotConfig.timerChannel = TIM_CHANNEL_1;
   dshotConfig.timDMAHandleIndex = TIM_DMA_ID_CC1;
-  dshotConfig.timDMASource = TIM_DMA_CC1;
   dshotConfig.dmaBuffer = buffer;
-  dshotInit(dshotConfig);
+//  dshotInit(dshotConfig);
 
   /*
    Initializing the Libcanard instance.
@@ -449,7 +453,7 @@ int main(void)
 			 NULL);
 
   uint64_t next_1hz_service_at = HAL_GetTick();
-//  uint64_t next_50hz_service_at = HAL_GetTick();
+  uint64_t next_50hz_service_at = HAL_GetTick();
 
   // Could use DNA (Dynamic Node Allocation) by following example in esc_node.c but that requires a lot of setup and I'm not too sure of what advantage it brings
   // Instead, set a different NODE_ID for each device on the CAN bus by configuring node_settings
@@ -459,32 +463,43 @@ int main(void)
 	  printf("Node ID is 0, this node is anonymous and can't transmit most messaged. Please update this in node_settings.h\n");
   }
 
+  /* TEMP REMOVE */
+  TIM1->CCR1 = 3000;
+  TIM1->ARR = 6000;
+  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  //check = HAL_TIM_Base_GetState(&htim1);
     // TODO: move to handle_rawcommand()
-    for (float throttle = 0.0f; throttle <= 99.0f; throttle += 10.0f) {
-		  dshotWrite(dshotConfig, throttle, 0);
-		  HAL_Delay(1000);
-	  }
+//    for (float throttle = 0.0f; throttle <= 99.0f; throttle += 10.0f) {
+//		dshotWrite(dshotConfig, throttle, 0);
+//		HAL_Delay(1000);
+//	}
+//	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+//	  HAL_Delay(200);
+//	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+//	  HAL_Delay(100);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  processCanardTxQueue(&hcan1);
+  // processCanardTxQueue(&hcan1);
 
-	const uint64_t ts = HAL_GetTick();
+	// const uint64_t ts = HAL_GetTick();
 
-	if (ts >= next_1hz_service_at) {
-		next_1hz_service_at += 1000ULL;
-		process1HzTasks(ts);
-	}
-//	if (ts >= next_50hz_service_at) {
-//		next_50hz_service_at += 1000000ULL/50U;
-//		send_ESCStatus();
-//	}
+	// if (ts >= next_1hz_service_at) {
+	// 	next_1hz_service_at += 1000ULL;
+	// 	process1HzTasks(ts);
+	// 	send_ESCStatus();
+	// }
+	// if (ts >= next_50hz_service_at) {
+	// 	next_50hz_service_at += 1000000ULL/50U;
+	// 	send_ESCStatus();
+	// }
 
   }
   /* USER CODE END 3 */
@@ -509,11 +524,15 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
-  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
-  RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 1;
+  RCC_OscInitStruct.PLL.PLLN = 12;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -523,12 +542,12 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -547,23 +566,7 @@ static void MX_CAN1_Init(void)
   /* USER CODE END CAN1_Init 0 */
 
   /* USER CODE BEGIN CAN1_Init 1 */
-  CAN_FilterTypeDef sFilterConfig;
-  /* sFilterConfig.IdType = FDCAN_EXTENDED_ID;
-  sFilterConfig.FilterIndex = 0;
-  sFilterConfig.FilterType = FDCAN_FILTER_MASK;
-  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
-  sFilterConfig.FilterID1 = 0x01;
-  sFilterConfig.FilterID2 = 0x0; */
-  sFilterConfig.FilterIdHigh = 0x0001 << 5;
-  sFilterConfig.FilterIdLow = 0x0000;
-  sFilterConfig.FilterMaskIdHigh = 0x0000;
-  sFilterConfig.FilterMaskIdLow = 0x0000;
-  sFilterConfig.FilterFIFOAssignment = CAN_FILTER_FIFO0; 
-  sFilterConfig.FilterBank = 0;
-  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
-  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
-  sFilterConfig.FilterActivation = ENABLE;
-  sFilterConfig.SlaveStartFilterBank = 14;
+
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
   hcan1.Init.Prescaler = 16;
@@ -582,18 +585,6 @@ static void MX_CAN1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN CAN1_Init 2 */
-  if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
-    printf("1");
-    Error_Handler();
-  }
-  if (HAL_CAN_ConfigFilter(&hcan1, &sFilterConfig) != HAL_OK) {
-    printf("2");
-    Error_Handler();
-  }
-  if (HAL_CAN_Start(&hcan1) != HAL_OK) {
-    printf("3");
-    Error_Handler();
-  }
 
   /* USER CODE END CAN1_Init 2 */
 
@@ -611,6 +602,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
   TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
@@ -621,10 +613,19 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 734;
+  htim1.Init.Period = 6000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
@@ -636,13 +637,13 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_SET;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
@@ -666,22 +667,6 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
 
