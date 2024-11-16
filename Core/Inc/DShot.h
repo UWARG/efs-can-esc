@@ -14,7 +14,7 @@
 #define DSHOT_DMA_BUFFER_LEN	18
 #define DSHOT_MAX_THROTTLE		2000
 #define DSHOT_RESERVED_VALUES	47
-#define DSHOT_150_BIT_1			550
+#define DSHOT_150_BIT_1			240
 #define DSHOT_150_BIT_0			(DSHOT_150_BIT_1 / 2)
 
 typedef struct DShotConfig {

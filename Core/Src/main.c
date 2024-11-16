@@ -49,6 +49,7 @@
 CAN_HandleTypeDef hcan1;
 
 TIM_HandleTypeDef htim1;
+DMA_HandleTypeDef hdma_tim1_ch1;
 
 /* USER CODE BEGIN PV */
 CanardInstance canard;
@@ -59,6 +60,7 @@ static struct uavcan_protocol_NodeStatus node_status;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_CAN1_Init(void);
 /* USER CODE BEGIN PFP */
@@ -426,6 +428,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM1_Init();
   MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
@@ -440,7 +443,7 @@ int main(void)
   dshotConfig.timerChannel = TIM_CHANNEL_1;
   dshotConfig.timDMAHandleIndex = TIM_DMA_ID_CC1;
   dshotConfig.dmaBuffer = buffer;
-//  dshotInit(dshotConfig);
+  dshotInit(dshotConfig);
 
   /*
    Initializing the Libcanard instance.
@@ -464,9 +467,8 @@ int main(void)
   }
 
   /* TEMP REMOVE */
-  TIM1->CCR1 = 3000;
-  TIM1->ARR = 6000;
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
+  //TIM1->CCR1 = 3000;
+  //HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
   
   /* USER CODE END 2 */
 
@@ -476,10 +478,10 @@ int main(void)
   {
 	  //check = HAL_TIM_Base_GetState(&htim1);
     // TODO: move to handle_rawcommand()
-//    for (float throttle = 0.0f; throttle <= 99.0f; throttle += 10.0f) {
-//		dshotWrite(dshotConfig, throttle, 0);
-//		HAL_Delay(1000);
-//	}
+    for (float throttle = 0.0f; throttle <= 99.0f; throttle += 10.0f) {
+		dshotWrite(dshotConfig, throttle, 0);
+		HAL_Delay(1000);
+	}
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
 //	  HAL_Delay(200);
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
@@ -613,7 +615,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 6000;
+  htim1.Init.Period = 320;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -637,7 +639,7 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM2;
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
@@ -667,6 +669,22 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 
 }
 
