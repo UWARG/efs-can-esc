@@ -478,10 +478,16 @@ int main(void)
   {
 	  //check = HAL_TIM_Base_GetState(&htim1);
     // TODO: move to handle_rawcommand()
-    for (float throttle = 0.0f; throttle <= 99.0f; throttle += 10.0f) {
-		dshotWrite(dshotConfig, throttle, 0);
-		HAL_Delay(1000);
-	}
+	  dshotWrite(dshotConfig, 0, 0);
+	  HAL_Delay(1000);
+	  for (float throttle = 0.0f; throttle <= 20.0f; throttle += 10.0f) {
+			dshotWrite(dshotConfig, throttle, 0);
+			HAL_Delay(1000);
+	  }
+	  for (float throttle = 20.0f; throttle >= 0.0f; throttle -= 10.0f) {
+			dshotWrite(dshotConfig, throttle, 0);
+			HAL_Delay(1000);
+	  }
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
 //	  HAL_Delay(200);
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
