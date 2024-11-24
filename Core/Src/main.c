@@ -26,7 +26,7 @@
 #include <canard.h>
 #include <dronecan_msgs.h>
 #include <node_settings.h>
-//#include <canard_stm32_driver.h>
+#include <canard_stm32_driver.h>
 #include <Dshot.h>
 /* USER CODE END Includes */
 
@@ -70,21 +70,23 @@ static void MX_CAN1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-//void HAL_CAN_RxFifo0Callback(CAN_HandleTypeDef *hcan, uint32_t RxFifo0ITs) {
-//	// Receiving
-//	CanardCANFrame rx_frame;
-//
-//	const uint64_t timestamp = HAL_GetTick() * 1000ULL;
-//	const int16_t rx_res = canardSTM32Recieve(hcan, CAN_RX_FIFO0, &rx_frame);
-//
-//	if (rx_res < 0) {
-//		printf("Receive error %d\n", rx_res);
-//	}
-//	else if (rx_res > 0)        // Success - process the frame
-//	{
-//		canardHandleRxFrame(&canard, &rx_frame, timestamp);
-//	}
-//}
+// The actual ISR, modify this to your needs
+// Run HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) once to set up the ISR 
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+	// Receiving
+	CanardCANFrame rx_frame;
+
+	const uint64_t timestamp = HAL_GetTick() * 1000ULL;
+	const int16_t rx_res = canardSTM32Recieve(hcan, CAN_RX_FIFO0, &rx_frame);
+
+	if (rx_res < 0) {
+		printf("Receive error %d\n", rx_res);
+	}
+	else if (rx_res > 0)        // Success - process the frame
+	{
+		canardHandleRxFrame(&canard, &rx_frame, timestamp);
+	}
+}
 
 // NOTE: All canard handlers and senders are based on this reference: https://dronecan.github.io/Specification/7._List_of_standard_data_types/
 // Alternatively, you can look at the corresponding generated header file in the dsdlc_generated folder
@@ -378,23 +380,41 @@ void onTransferReceived(CanardInstance *ins, CanardRxTransfer *transfer) {
 //}
 
 /*
-  This function is called at 1 Hz rate from the main loop.
+  This function is called at 1 Hz rate from the main loop (to send CAN messages).
 */
-void process1HzTasks(uint64_t timestamp_usec) {
-    /*
-      Purge transfers that are no longer transmitted. This can free up some memory
-    */
-    canardCleanupStaleTransfers(&canard, timestamp_usec);
+//void process1HzTasks(uint64_t timestamp_usec) {
+//    /*
+//      Purge transfers that are no longer transmitted. This can free up some memory
+//    */
+//    canardCleanupStaleTransfers(&canard, timestamp_usec);
+//
+//    /*
+//      Transmit the node status message
+//    */
+//    send_NodeStatus();
+//}
+//
+//void send_ESCStatus() {
+//  // TODO: see servo example
+//    printf("test\n");
+//}
 
-    /*
-      Transmit the node status message
-    */
-    send_NodeStatus();
-}
+// CAN Filter setup, modify this to your needs
+// Run this once before calling HAL_CAN_Start()
+void setupCANFilter(CAN_HandleTypeDef *hcan) {
+  CAN_FilterTypeDef filter;
+  filter.FilterBank = 0;
+	filter.FilterMode = CAN_FILTERMODE_IDMASK;
+	filter.FilterFIFOAssignment = CAN_RX_FIFO0;
+	filter.FilterIdHigh = 0;
+	filter.FilterIdLow = 0;
+	filter.FilterMaskIdHigh = 0;
+	filter.FilterMaskIdLow = 0;
+	filter.FilterScale = CAN_FILTERSCALE_32BIT;
+	filter.FilterActivation = ENABLE;
+	filter.SlaveStartFilterBank = 14;
 
-void send_ESCStatus() {
-  // TODO: see servo example
-    printf("test\n");
+	HAL_CAN_ConfigFilter(hcan, &filter);
 }
 
 /* USER CODE END 0 */
@@ -445,6 +465,13 @@ int main(void)
   dshotConfig.dmaBuffer = buffer;
   dshotInit(dshotConfig);
 
+  // setup can isr
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
+
+  // can stuff
+  setupCANFilter(&hcan1);
+  HAL_CAN_Start(&hcan1);
+
   /*
    Initializing the Libcanard instance.
    */
@@ -466,7 +493,7 @@ int main(void)
 	  printf("Node ID is 0, this node is anonymous and can't transmit most messaged. Please update this in node_settings.h\n");
   }
 
-  /* TEMP REMOVE */
+  /* TEMP REMOVE (testing timer) */
   //TIM1->CCR1 = 3000;
   //HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
   
@@ -478,36 +505,40 @@ int main(void)
   {
 	  //check = HAL_TIM_Base_GetState(&htim1);
     // TODO: move to handle_rawcommand()
-	  dshotWrite(dshotConfig, 0, 0);
-	  HAL_Delay(1000);
-	  for (float throttle = 0.0f; throttle <= 20.0f; throttle += 10.0f) {
-			dshotWrite(dshotConfig, throttle, 0);
-			HAL_Delay(1000);
-	  }
-	  for (float throttle = 20.0f; throttle >= 0.0f; throttle -= 10.0f) {
-			dshotWrite(dshotConfig, throttle, 0);
-			HAL_Delay(1000);
-	  }
+	  /* testing dshotWrite */
+	  //dshotWrite(dshotConfig, 0, 0);
+	  //HAL_Delay(1000);
+	  //for (float throttle = 0.0f; throttle <= 20.0f; throttle += 10.0f) {
+	  //	dshotWrite(dshotConfig, throttle, 0);
+	  //	HAL_Delay(1000);
+	  //}
+	  //for (float throttle = 20.0f; throttle >= 0.0f; throttle -= 10.0f) {
+	  //	dshotWrite(dshotConfig, throttle, 0);
+	  //	HAL_Delay(1000);
+	  //}
+
+	  /* testing GPIO toggle */
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
 //	  HAL_Delay(200);
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
 //	  HAL_Delay(100);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  // processCanardTxQueue(&hcan1);
 
-	// const uint64_t ts = HAL_GetTick();
-
-	// if (ts >= next_1hz_service_at) {
-	// 	next_1hz_service_at += 1000ULL;
-	// 	process1HzTasks(ts);
-	// 	send_ESCStatus();
-	// }
-	// if (ts >= next_50hz_service_at) {
-	// 	next_50hz_service_at += 1000000ULL/50U;
-	// 	send_ESCStatus();
-	// }
+    // send CAN message
+      //processCanardTxQueue(&hcan1);
+      //const uint64_t ts = HAL_GetTick();
+      //if (ts >= next_1hz_service_at) {
+      //next_1hz_service_at += 1000ULL;
+      //process1HzTasks(ts);
+      //send_ESCStatus();
+      //}
+      //if (ts >= next_50hz_service_at) {
+      //next_50hz_service_at += 1000000ULL/50U;
+      //send_ESCStatus();
+      //}
 
   }
   /* USER CODE END 3 */
@@ -577,10 +608,10 @@ static void MX_CAN1_Init(void)
 
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 16;
+  hcan1.Init.Prescaler = 12;
   hcan1.Init.Mode = CAN_MODE_NORMAL;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_2TQ;
   hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
   hcan1.Init.TimeTriggeredMode = DISABLE;
   hcan1.Init.AutoBusOff = DISABLE;
