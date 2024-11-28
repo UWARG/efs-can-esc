@@ -70,24 +70,6 @@ static void MX_CAN1_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-// The actual ISR, modify this to your needs
-// Run HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) once to set up the ISR 
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
-	// Receiving
-	CanardCANFrame rx_frame;
-
-	const uint64_t timestamp = HAL_GetTick() * 1000ULL;
-	const int16_t rx_res = canardSTM32Recieve(hcan, CAN_RX_FIFO0, &rx_frame);
-
-	if (rx_res < 0) {
-		printf("Receive error %d\n", rx_res);
-	}
-	else if (rx_res > 0)        // Success - process the frame
-	{
-		canardHandleRxFrame(&canard, &rx_frame, timestamp);
-	}
-}
-
 // NOTE: All canard handlers and senders are based on this reference: https://dronecan.github.io/Specification/7._List_of_standard_data_types/
 // Alternatively, you can look at the corresponding generated header file in the dsdlc_generated folder
 
@@ -170,25 +152,6 @@ void handle_NotifyState(CanardInstance *ins, CanardRxTransfer *transfer) {
 }
 
 /*
-  handle a ESC RawCommand request
-*/
-void handle_RawCommand(CanardInstance *ins, CanardRxTransfer *transfer)
-{
-    struct uavcan_equipment_esc_RawCommand rawCommand;
-    if (uavcan_equipment_esc_RawCommand_decode(transfer, &rawCommand)) {
-        return;
-    }
-    // see if it is for us
-    if (rawCommand.cmd.len <= ESC_INDEX) {
-        return;
-    }
-    // convert throttle to -1.0 to 1.0 range
-    printf("Throttle: ");
-    //printf(rawCommand.cmd.data[ESC_INDEX]/8192.0);
-    printf("\n");
-}
-
-/*
   get a 16 byte unique ID for this node, this should be based on the CPU unique ID or other unique ID
  */
 void getUniqueID(uint8_t id[16]) {
@@ -251,7 +214,7 @@ void handle_GetNodeInfo(CanardInstance *ins, CanardRxTransfer *transfer) {
   send the 1Hz NodeStatus message. This is what allows a node to show
   up in the DroneCAN GUI tool and in the flight controller logs
  */
-void send_NodeStatus(void) {
+/* void send_NodeStatus(void) {
     uint8_t buffer[UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE];
 
     node_status.uptime_sec = HAL_GetTick() / 1000UL;
@@ -276,9 +239,90 @@ void send_NodeStatus(void) {
                     CANARD_TRANSFER_PRIORITY_LOW,
                     buffer,
                     len);
-}
+} */
+
+//void processCanardTxQueue(CAN_HandleTypeDef *hcan) {
+//	// Transmitting
+//
+//	for (const CanardCANFrame *tx_frame ; (tx_frame = canardPeekTxQueue(&canard)) != NULL;) {
+//		const int16_t tx_res = canardSTM32Transmit(hcan, tx_frame);
+//
+//		if (tx_res < 0) {
+//			printf("Transmit error %d\n", tx_res);
+//		} else if (tx_res > 0) {
+//			printf("Successfully transmitted message\n");
+//		}
+//
+//		// Pop canardTxQueue either way
+//		canardPopTxQueue(&canard);
+//	}
+//}
+
+/*
+  This function is called at 1 Hz rate from the main loop (to send CAN messages).
+*/
+//void process1HzTasks(uint64_t timestamp_usec) {
+//    /*
+//      Purge transfers that are no longer transmitted. This can free up some memory
+//    */
+//    canardCleanupStaleTransfers(&canard, timestamp_usec);
+//
+//    /*
+//      Transmit the node status message
+//    */
+//    send_NodeStatus();
+//}
+//
+//void send_ESCStatus() {
+//  // TODO: see servo example
+//    printf("test\n");
+//}
 
 // Canard Util
+
+/*
+  handle a ESC RawCommand request
+*/
+DShotConfig_t dshotConfig = {};
+float global_throttle = 0.0;
+
+void handle_RawCommand(CanardInstance *ins, CanardRxTransfer *transfer)
+{
+    struct uavcan_equipment_esc_RawCommand rawCommand;
+    if (uavcan_equipment_esc_RawCommand_decode(transfer, &rawCommand)) {
+        return;
+    }
+    // see if it is for us
+    if (rawCommand.cmd.len <= ESC_INDEX) {
+        return;
+    }
+    // convert throttle to -1.0 to 1.0 range
+    //printf("Throttle: ");
+    float throttle = rawCommand.cmd.data[ESC_INDEX]/8192.0*100;
+    //printf(throttle);
+    global_throttle = throttle;
+    
+    //printf("\n");
+
+}
+
+// The actual ISR, modify this to your needs
+// Run HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) once to set up the ISR 
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+	// Receiving
+	CanardCANFrame rx_frame;
+
+	const uint64_t timestamp = HAL_GetTick() * 1000ULL;
+	const int16_t rx_res = canardSTM32Recieve(hcan, CAN_RX_FIFO0, &rx_frame);
+
+	if (rx_res < 0) {
+		printf("Receive error %d\n", rx_res);
+	}
+	else if (rx_res > 0)        // Success - process the frame
+	{
+		canardHandleRxFrame(&canard, &rx_frame, timestamp);
+	}
+}
 
 bool shouldAcceptTransfer(const CanardInstance *ins,
                                  uint64_t *out_data_type_signature,
@@ -362,43 +406,6 @@ void onTransferReceived(CanardInstance *ins, CanardRxTransfer *transfer) {
 	}
 }
 
-//void processCanardTxQueue(CAN_HandleTypeDef *hcan) {
-//	// Transmitting
-//
-//	for (const CanardCANFrame *tx_frame ; (tx_frame = canardPeekTxQueue(&canard)) != NULL;) {
-//		const int16_t tx_res = canardSTM32Transmit(hcan, tx_frame);
-//
-//		if (tx_res < 0) {
-//			printf("Transmit error %d\n", tx_res);
-//		} else if (tx_res > 0) {
-//			printf("Successfully transmitted message\n");
-//		}
-//
-//		// Pop canardTxQueue either way
-//		canardPopTxQueue(&canard);
-//	}
-//}
-
-/*
-  This function is called at 1 Hz rate from the main loop (to send CAN messages).
-*/
-//void process1HzTasks(uint64_t timestamp_usec) {
-//    /*
-//      Purge transfers that are no longer transmitted. This can free up some memory
-//    */
-//    canardCleanupStaleTransfers(&canard, timestamp_usec);
-//
-//    /*
-//      Transmit the node status message
-//    */
-//    send_NodeStatus();
-//}
-//
-//void send_ESCStatus() {
-//  // TODO: see servo example
-//    printf("test\n");
-//}
-
 // CAN Filter setup, modify this to your needs
 // Run this once before calling HAL_CAN_Start()
 void setupCANFilter(CAN_HandleTypeDef *hcan) {
@@ -458,7 +465,6 @@ int main(void)
   */
   //HAL_TIM_StateTypeDef check = HAL_DMA_GetState(&htim1);
   uint32_t buffer[DSHOT_DMA_BUFFER_LEN] = {0};
-  DShotConfig_t dshotConfig = {};
   dshotConfig.timer = &htim1;
   dshotConfig.timerChannel = TIM_CHANNEL_1;
   dshotConfig.timDMAHandleIndex = TIM_DMA_ID_CC1;
@@ -508,14 +514,17 @@ int main(void)
 	  /* testing dshotWrite */
 	  //dshotWrite(dshotConfig, 0, 0);
 	  //HAL_Delay(1000);
-	  //for (float throttle = 0.0f; throttle <= 20.0f; throttle += 10.0f) {
+	  //for (float throttle = 0.0f; throttle <= 10.0f; throttle += 10.0f) {
 	  //	dshotWrite(dshotConfig, throttle, 0);
 	  //	HAL_Delay(1000);
 	  //}
-	  //for (float throttle = 20.0f; throttle >= 0.0f; throttle -= 10.0f) {
+	  //for (float throttle = 10.0f; throttle >= 0.0f; throttle -= 10.0f) {
 	  //	dshotWrite(dshotConfig, throttle, 0);
 	  //	HAL_Delay(1000);
 	  //}
+
+    dshotWrite(dshotConfig, global_throttle, 0);
+    HAL_Delay(1000);
 
 	  /* testing GPIO toggle */
 //	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
