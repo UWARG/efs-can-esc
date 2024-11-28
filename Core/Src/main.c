@@ -21,13 +21,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <canard.h>
+#include <canard_stm32_driver.h>
+#include <dronecan_msgs.h>
+#include <Dshot.h>
+#include <node_settings.h>
 #include <stdio.h>
 #include <string.h>
-#include <canard.h>
-#include <dronecan_msgs.h>
-#include <node_settings.h>
-#include <canard_stm32_driver.h>
-#include <Dshot.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,6 +53,8 @@ DMA_HandleTypeDef hdma_tim1_ch1;
 
 /* USER CODE BEGIN PV */
 CanardInstance canard;
+DShotConfig_t dshotConfig = {};
+float global_throttle = 0.0;
 uint8_t memory_pool[1024];
 static struct uavcan_protocol_NodeStatus node_status;
 /* USER CODE END PV */
@@ -208,105 +210,28 @@ void handle_GetNodeInfo(CanardInstance *ins, CanardRxTransfer *transfer) {
 						   total_size);
 }
 
-// Canard Senders
-
-/*
-  send the 1Hz NodeStatus message. This is what allows a node to show
-  up in the DroneCAN GUI tool and in the flight controller logs
- */
-/* void send_NodeStatus(void) {
-    uint8_t buffer[UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE];
-
-    node_status.uptime_sec = HAL_GetTick() / 1000UL;
-    node_status.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
-    node_status.mode = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
-    node_status.sub_mode = 0;
-
-    // put whatever you like in here for display in GUI
-    node_status.vendor_specific_status_code = 1234;
-
-    uint32_t len = uavcan_protocol_NodeStatus_encode(&node_status, buffer);
-
-    // we need a static variable for the transfer ID. This is
-    // incremeneted on each transfer, allowing for detection of packet
-    // loss
-    static uint8_t transfer_id;
-
-    canardBroadcast(&canard,
-                    UAVCAN_PROTOCOL_NODESTATUS_SIGNATURE,
-                    UAVCAN_PROTOCOL_NODESTATUS_ID,
-                    &transfer_id,
-                    CANARD_TRANSFER_PRIORITY_LOW,
-                    buffer,
-                    len);
-} */
-
-//void processCanardTxQueue(CAN_HandleTypeDef *hcan) {
-//	// Transmitting
-//
-//	for (const CanardCANFrame *tx_frame ; (tx_frame = canardPeekTxQueue(&canard)) != NULL;) {
-//		const int16_t tx_res = canardSTM32Transmit(hcan, tx_frame);
-//
-//		if (tx_res < 0) {
-//			printf("Transmit error %d\n", tx_res);
-//		} else if (tx_res > 0) {
-//			printf("Successfully transmitted message\n");
-//		}
-//
-//		// Pop canardTxQueue either way
-//		canardPopTxQueue(&canard);
-//	}
-//}
-
-/*
-  This function is called at 1 Hz rate from the main loop (to send CAN messages).
-*/
-//void process1HzTasks(uint64_t timestamp_usec) {
-//    /*
-//      Purge transfers that are no longer transmitted. This can free up some memory
-//    */
-//    canardCleanupStaleTransfers(&canard, timestamp_usec);
-//
-//    /*
-//      Transmit the node status message
-//    */
-//    send_NodeStatus();
-//}
-//
-//void send_ESCStatus() {
-//  // TODO: see servo example
-//    printf("test\n");
-//}
-
-// Canard Util
-
 /*
   handle a ESC RawCommand request
 */
-DShotConfig_t dshotConfig = {};
-float global_throttle = 0.0;
-
 void handle_RawCommand(CanardInstance *ins, CanardRxTransfer *transfer)
 {
-    struct uavcan_equipment_esc_RawCommand rawCommand;
-    if (uavcan_equipment_esc_RawCommand_decode(transfer, &rawCommand)) {
-        return;
-    }
-    // see if it is for us
-    if (rawCommand.cmd.len <= ESC_INDEX) {
-        return;
-    }
-    // convert throttle to -1.0 to 1.0 range
-    //printf("Throttle: ");
-    float throttle = rawCommand.cmd.data[ESC_INDEX]/8192.0*100;
-    //printf(throttle);
-    global_throttle = throttle;
-    
-    //printf("\n");
+  struct uavcan_equipment_esc_RawCommand rawCommand;
+  if (uavcan_equipment_esc_RawCommand_decode(transfer, &rawCommand)) {
+    return;
+  }
+
+  // see if it is for us
+  if (rawCommand.cmd.len <= ESC_INDEX) {
+    return;
+  }
+
+  // convert throttle to -100 to 100 range and update the global value
+  float throttle = rawCommand.cmd.data[ESC_INDEX]/8192.0*100;
+  global_throttle = throttle;
 
 }
 
-// The actual ISR, modify this to your needs
+// CAN ISR
 // Run HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) once to set up the ISR 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
 	// Receiving
@@ -460,10 +385,7 @@ int main(void)
   MX_CAN1_Init();
   /* USER CODE BEGIN 2 */
 
-  /*
-    initializing dshot
-  */
-  //HAL_TIM_StateTypeDef check = HAL_DMA_GetState(&htim1);
+  /* Initialize DShot */
   uint32_t buffer[DSHOT_DMA_BUFFER_LEN] = {0};
   dshotConfig.timer = &htim1;
   dshotConfig.timerChannel = TIM_CHANNEL_1;
@@ -471,10 +393,8 @@ int main(void)
   dshotConfig.dmaBuffer = buffer;
   dshotInit(dshotConfig);
 
-  // setup can isr
+  /* Initialize CAN ISR, CAN Filter, and CAN module  */
   HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
-
-  // can stuff
   setupCANFilter(&hcan1);
   HAL_CAN_Start(&hcan1);
 
@@ -488,20 +408,12 @@ int main(void)
 			 shouldAcceptTransfer,
 			 NULL);
 
-  uint64_t next_1hz_service_at = HAL_GetTick();
-  uint64_t next_50hz_service_at = HAL_GetTick();
-
-  // Could use DNA (Dynamic Node Allocation) by following example in esc_node.c but that requires a lot of setup and I'm not too sure of what advantage it brings
-  // Instead, set a different NODE_ID for each device on the CAN bus by configuring node_settings
+  // Set a different NODE_ID for each device on the CAN bus by configuring node_settings
   if (NODE_ID > 0) {
 	  canardSetLocalNodeID(&canard, NODE_ID);
   } else {
 	  printf("Node ID is 0, this node is anonymous and can't transmit most messaged. Please update this in node_settings.h\n");
   }
-
-  /* TEMP REMOVE (testing timer) */
-  //TIM1->CCR1 = 3000;
-  //HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
   
   /* USER CODE END 2 */
 
@@ -509,46 +421,12 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //check = HAL_TIM_Base_GetState(&htim1);
-    // TODO: move to handle_rawcommand()
-	  /* testing dshotWrite */
-	  //dshotWrite(dshotConfig, 0, 0);
-	  //HAL_Delay(1000);
-	  //for (float throttle = 0.0f; throttle <= 10.0f; throttle += 10.0f) {
-	  //	dshotWrite(dshotConfig, throttle, 0);
-	  //	HAL_Delay(1000);
-	  //}
-	  //for (float throttle = 10.0f; throttle >= 0.0f; throttle -= 10.0f) {
-	  //	dshotWrite(dshotConfig, throttle, 0);
-	  //	HAL_Delay(1000);
-	  //}
-
+    // global_throttle is updated by handle_RawCommand when ESC CAN message is received.
     dshotWrite(dshotConfig, global_throttle, 0);
     HAL_Delay(1000);
 
-	  /* testing GPIO toggle */
-//	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-//	  HAL_Delay(200);
-//	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
-//	  HAL_Delay(100);
-
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
-
-    // send CAN message
-      //processCanardTxQueue(&hcan1);
-      //const uint64_t ts = HAL_GetTick();
-      //if (ts >= next_1hz_service_at) {
-      //next_1hz_service_at += 1000ULL;
-      //process1HzTasks(ts);
-      //send_ESCStatus();
-      //}
-      //if (ts >= next_50hz_service_at) {
-      //next_50hz_service_at += 1000000ULL/50U;
-      //send_ESCStatus();
-      //}
-
   }
   /* USER CODE END 3 */
 }
